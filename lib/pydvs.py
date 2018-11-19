@@ -1,0 +1,224 @@
+import sys, os, shutil
+
+try:
+    sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
+except:
+    pass
+
+import yaml
+import cv2
+import numpy as np
+from math import fabs, sqrt
+
+
+# The dvs-related stuff, implemented in C.
+import cpydvs
+
+
+class bcolors:
+    HEADER = '\033[95m'
+    PLAIN = '\033[37m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
+
+def offset(str_, p_offset):
+    for i in range(p_offset):
+        str_ = '...' + str_
+    return str_
+
+def hdr(str_, p_offset=0):
+    return offset(bcolors.HEADER + str_ + bcolors.ENDC, p_offset)
+
+def wht(str_, p_offset=0):
+    return offset(bcolors.PLAIN + str_ + bcolors.ENDC, p_offset)
+
+def okb(str_, p_offset=0):
+    return offset(bcolors.OKBLUE + str_ + bcolors.ENDC, p_offset)
+
+def okg(str_, p_offset=0):
+    return offset(bcolors.OKGREEN + str_ + bcolors.ENDC, p_offset)
+
+def wrn(str_, p_offset=0):
+    return offset(bcolors.WARNING + str_ + bcolors.ENDC, p_offset)
+
+def err(str_, p_offset=0):
+    return offset(bcolors.FAIL + str_ + bcolors.ENDC, p_offset)
+
+def bld(str_, p_offset=0):
+    return offset(bcolors.BOLD + str_ + bcolors.ENDC, p_offset)
+
+
+def ensure_dir(f):
+    if not os.path.exists(f):
+        print (okg("Created directory: ") + okb(f))
+        os.makedirs(f)
+
+def replace_dir(f):
+    if os.path.exists(f):
+        print (wrn("Removed directory: ") + okb(f))
+        shutil.rmtree(f)
+    os.makedirs(f)
+    print (okg("Created directory: ") + okb(f))
+
+
+def read_calib_yaml(fname):
+    K = np.array([[0.0, 0.0, 0.0],
+                  [0.0, 0.0, 0.0],
+                  [0.0, 0.0, 1.0]])
+    D = np.array([0.0, 0.0, 0.0, 0.0])
+
+    cam_file = open(fname)
+    cam_data = yaml.safe_load(cam_file)
+    cam_file.close()
+
+    K[0][0] = cam_data['cam_fx']
+    K[1][1] = cam_data['cam_fy']
+    K[0][2] = cam_data['cam_cx']
+    K[1][2] = cam_data['cam_cy']
+
+    return K, D
+
+
+def read_calib_txt(fname):
+    K = np.array([[0.0, 0.0, 0.0],
+                  [0.0, 0.0, 0.0],
+                  [0.0, 0.0, 1.0]])
+    D = np.array([0.0, 0.0, 0.0, 0.0])
+
+    lines = []
+    with open(fname) as calib:
+        lines = calib.readlines()
+
+    # A single line: fx, fy, xc, cy, k1...k4
+    if (len(lines) == 1):
+        calib = lines[0].split(' ')
+        K[0][0] = calib[0]
+        K[1][1] = calib[1]
+        K[0][2] = calib[2]
+        K[1][2] = calib[3]
+        D[0] = calib[4]        
+        D[1] = calib[5]
+        D[2] = calib[6]        
+        D[3] = calib[7]
+        return K, D
+
+    K_txt = lines[0:3]
+    D_txt = lines[4]
+    
+    for i, line in enumerate(K_txt):
+        for j, num_txt in enumerate(line.split(' ')[0:3]):
+            K[i][j] = float(num_txt)
+
+    for j, num_txt in enumerate(D_txt.split(' ')[0:4]):
+        D[j] = float(num_txt)
+
+    return K, D
+
+
+def get_index(cloud, index_w):
+    idx = [0]
+    if (cloud.shape[0] < 1):
+        return np.array(idx, dtype=np.uint32)
+
+    last_ts = cloud[0][0]
+    for i, e in enumerate(cloud):
+        while (e[0] - last_ts > index_w):
+            idx.append(i)
+            last_ts += index_w
+
+    return np.array(idx, dtype=np.uint32)
+
+
+def read_event_file_txt(fname, discretization):
+    print (okb("Reading the event file as a text file..."))
+    cloud = np.loadtxt(fname, dtype=np.float32)
+
+    print (okb("Indexing..."))
+    idx = get_index(cloud, discretization)
+    return cloud, idx
+
+
+def undistort_img(img, K, D):
+    if (K is None):
+        return img
+    if (D is None):
+        D = np.array([0, 0, 0, 0])
+
+    Knew = K.copy()
+    Knew[(0,1), (0,1)] = 0.87 * Knew[(0,1), (0,1)]
+    img_undistorted = cv2.fisheye.undistortImage(img, K, D=D, Knew=Knew)
+    return img_undistorted
+
+
+def dvs_img(cloud, shape, model=None, scale=None, K=None, D=None):
+    fcloud = cloud.astype(np.float32) # Important!
+
+    if (model is None):
+        model = [0, 0, 0, 0]
+
+    if (scale is None):
+        scale = 1
+
+    cmb = np.zeros((shape[0] * scale, shape[1] * scale, 3), dtype=np.float32)
+    cpydvs.dvs_img(fcloud, cmb, model, scale)
+
+    cmb = undistort_img(cmb, K, D)
+
+    cnt_img = cmb[:,:,0] + cmb[:,:,2] + 1e-8
+    timg = cmb[:,:,1]
+
+    timg /= cnt_img
+
+    # Undistortion may affect the event counts   
+    timg[cnt_img < 0.9] = 0
+    return cmb
+
+
+def dvs_err(tc_img, G_img):
+    return cpydvs.dvs_error(tc_img, G_img)
+
+
+def get_slice(cloud, idx, ts, width, mode=0, idx_step=0.01):
+    if (cloud.shape[0] == 0):
+        return cloud, np.array([0])
+
+    ts_lo = ts
+    ts_hi = ts + width
+    if (mode == 1):
+        ts_lo = ts - width / 2.0
+        ts_hi = ts + width / 2.0
+    if (mode == 2):
+        ts_lo = ts - width
+        ts_hi = ts
+    if (mode > 2 or mode < 0):
+        print (wrn("get_slice: Wrong mode! Reverting to default..."))
+    if (ts_lo < 0): ts_lo = 0
+
+    t0 = cloud[0][0]
+
+    idx_lo = int((ts_lo - t0) / idx_step)
+    idx_hi = int((ts_hi - t0) / idx_step)
+    if (idx_lo >= len(idx)): idx_lo = -1
+    if (idx_hi >= len(idx)): idx_hi = -1
+
+    sl = np.copy(cloud[idx[idx_lo]:idx[idx_hi]].astype(np.float32))
+    idx_ = np.copy(idx[idx_lo:idx_hi])
+
+    if (idx_lo == idx_hi):
+        return sl, np.array([0])
+
+    if (len(idx_) > 0):
+        idx_0 = idx_[0]
+        idx_ -= idx_0
+
+    if (sl.shape[0] > 0):
+        t0 = sl[0][0]
+        sl[:,0] -= t0
+
+    return sl, idx_
