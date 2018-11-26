@@ -43,7 +43,7 @@ static PyObject* dvs_img(PyObject* self, PyObject* args)
         float dt = t - t0;
 
         // Warp the cloud here
-        float rx  = x - (float)dims[1] * scale / 2.0, ry = y - (float)dims[0] * scale / 2.0;
+        float rx  = x - (float)dims[1] / (scale * 2.0), ry = y - (float)dims[0] / (scale * 2.0);
         float rx_ = cos(rot * dt) * rx - sin(rot * dt) * ry;
         float ry_ = sin(rot * dt) * rx + cos(rot * dt) * ry;
         float dnx = rx_ * div * dt + (rx_ - rx) + dx * dt;

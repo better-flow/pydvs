@@ -122,9 +122,9 @@ class AlignmentErrorTool:
         
         while (True):
             if (self.x_err * old_x_err < 0):
-                divs[0] *= 2
+                divs[0] *= 1.5
             if (self.y_err * old_y_err < 0):
-                divs[1] *= 2
+                divs[1] *= 1.5
             if (self.yaw_err * old_yaw_err < 0):
                 divs[2] *= 2
             if (self.z_err * old_z_err < 0):
@@ -132,8 +132,8 @@ class AlignmentErrorTool:
 
             ex_step = self.x_err / divs[0]
             ey_step = self.y_err / divs[1]
-            eyaw_step = self.yaw_err / divs[2]
-            ez_step = self.z_err / divs[3]
+            eyaw_step = 0 * self.yaw_err / divs[2]
+            ez_step = 0 * self.z_err / divs[3]
 
             if (abs(ex_step) < 1e-3 and abs(ey_step) < 1e-3 and 
                 abs(eyaw_step) < 1e-3 and abs(ez_step) < 1e-3):
