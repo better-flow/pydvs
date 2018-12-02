@@ -123,7 +123,7 @@ def read_calib_txt(fname):
 
 def get_index(cloud, index_w):
     idx = [0]
-    if (cloud.shape[0] < 1):
+    if (cloud.shape[0] < 2):
         return np.array(idx, dtype=np.uint32)
 
     last_ts = cloud[0][0]
@@ -132,16 +132,24 @@ def get_index(cloud, index_w):
             idx.append(i)
             last_ts += index_w
 
+    idx.append(cloud.shape[0] - 1)
     return np.array(idx, dtype=np.uint32)
 
 
 def read_event_file_txt(fname, discretization):
     print (okb("Reading the event file as a text file..."))
-    cloud = np.loadtxt(fname, dtype=np.float32)
+    cloud = np.loadtxt(fname, dtype=np.float)
+    if (cloud.shape[0] == 0):
+        print (wrn("Read 0 events from " + fname + "!"))
+    else:
+        t0 = cloud[0][0]
+        if (cloud[0][0] > 1e5):
+            cloud[:,0] -= t0
+            print (wrn("Adjusting initial timestamp to 0!"))
 
     print (okb("Indexing..."))
     idx = get_index(cloud, discretization)
-    return cloud, idx
+    return cloud.astype(np.float32), idx
 
 
 def undistort_img(img, K, D):
