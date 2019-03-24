@@ -2,6 +2,7 @@
 #include <numpy/arrayobject.h>
 #include <math.h>
 
+#define abs(x) ((x)<0 ? -(x) : (x))
 
 static PyObject* dvs_img(PyObject* self, PyObject* args)
 {
@@ -179,6 +180,111 @@ static PyObject* dvs_error(PyObject* self, PyObject* args)
 };
 
 
+static PyObject* dvs_flow_error(PyObject* self, PyObject* args)
+{
+    PyArrayObject *in_array;
+    PyArrayObject *out_array;
+
+    /*  parse single numpy array argument */
+    if (!PyArg_ParseTuple(args, "O!O!", &PyArray_Type, &in_array, &PyArray_Type, &out_array))
+        return NULL;
+
+    npy_intp idims[3];
+    idims[0] = PyArray_DIM(in_array, 0);
+    idims[1] = PyArray_DIM(in_array, 1);
+    idims[2] = PyArray_DIM(in_array, 2);
+    
+    npy_intp odims[3];
+    odims[0] = PyArray_DIM(out_array, 0);
+    odims[1] = PyArray_DIM(out_array, 1);
+
+    for (int i = 0; i < 2; ++i) if (idims[i] != odims[i]) return NULL;
+    if (idims[2] != 3) return NULL;
+
+    const float EPS = 0.0001;
+
+    float *in_dataptr  = (float *) PyArray_DATA(in_array);
+    float *out_dataptr = (float *) PyArray_DATA(out_array);
+
+    float dx = 0, dy = 0, rot = 0, div = 0, cnt = 0, nz_avg = 0;
+    for (unsigned int y = 1; y < idims[0] - 1; ++y) {
+        for (unsigned int x = 1; x < idims[1] - 1; ++x) {
+            unsigned long idx0 = (y - 1) * idims[1] + x;
+            unsigned long idx1 = (y - 0) * idims[1] + x;
+            unsigned long idx2 = (y + 1) * idims[1] + x;
+
+            out_dataptr[idx1 * 2 + 0] = 0;
+            out_dataptr[idx1 * 2 + 1] = 0;
+
+            float lcnt = in_dataptr[idx1 * 3 + 0] + in_dataptr[idx1 * 3 + 2];
+            if (lcnt < 0.5)
+                continue;
+
+            float a00 = in_dataptr[(idx0 - 1) * 3 + 1];
+            float a01 = in_dataptr[(idx0 - 0) * 3 + 1];
+            float a02 = in_dataptr[(idx0 + 1) * 3 + 1];
+
+            float a10 = in_dataptr[(idx1 - 1) * 3 + 1];
+            //float a11 = in_dataptr[(idx1 - 0) * 3 + 1];
+            float a12 = in_dataptr[(idx1 + 1) * 3 + 1];
+
+            float a20 = in_dataptr[(idx2 - 1) * 3 + 1];
+            float a21 = in_dataptr[(idx2 - 0) * 3 + 1];
+            float a22 = in_dataptr[(idx2 + 1) * 3 + 1];
+
+            if (a00 < EPS || a01 < EPS || a02 < EPS || 
+                a10 < EPS || a12 < EPS ||
+                a20 < EPS || a21 < EPS || a22 < EPS)
+                continue;
+
+            float rx = x - idims[1] / 2, ry = y - idims[0] / 2;
+            if (abs(rx) < 0.5 || abs(ry) < 0.5) continue;
+
+            float dx_ = 3 * (a00 - a02) + 10 * (a10 - a12) + 3 * (a20 - a22);
+            float dy_ = 3 * (a00 - a20) + 10 * (a01 - a21) + 3 * (a02 - a22);
+            
+            if (abs(dy_) < 0.001 || abs(dx_) < 0.001) continue;
+            dy_ = -1.0 / dy_;
+            dx_ = -1.0 / dx_;
+
+            out_dataptr[idx1 * 2 + 0] = -dx_;
+            out_dataptr[idx1 * 2 + 1] =  dy_;
+
+            nz_avg += lcnt;
+            cnt += 1;
+
+            dx += dx_;
+            dy += dy_;
+
+            rot += rx * dy_ - ry * dx_;            
+            float len = 5000 * sqrt((dx_ * dx_ + dy_ * dy_) / (rx * rx + ry * ry));
+            float divergence = rx * dx_ + ry * dy_;
+
+            //div += rx * dx_ + ry * dy_;
+            div += (divergence > 0) ? len : -len;
+        }
+    }
+
+    // Another magic number
+    if (cnt < 100) {
+        dx = 0;
+        dy = 0;    
+        rot = 0;
+        div = 0;
+        nz_avg = 0;
+    } else {
+        dx /= cnt;
+        dy /= cnt;
+        rot /= cnt;
+        div /= cnt;
+        nz_avg /= cnt;
+    }
+
+    //Py_INCREF(out_array);
+    return Py_BuildValue("ffffff", dx, dy, rot, div, cnt, nz_avg);
+};
+
+
 
 /*  define functions in module */
 static PyMethodDef DVSMethods[] =
@@ -186,7 +292,9 @@ static PyMethodDef DVSMethods[] =
      {"dvs_img", dvs_img, METH_VARARGS,
          "compute dvs image from event cloud"},
      {"dvs_error", dvs_error, METH_VARARGS,
-         "compute errors on the dvs image"},     
+         "compute errors on the dvs image"},
+     {"dvs_flow_error", dvs_flow_error, METH_VARARGS,
+         "compute fast optical flow on the dvs image"},    
      {NULL, NULL, 0, NULL}
 };
 

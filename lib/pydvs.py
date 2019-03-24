@@ -192,6 +192,10 @@ def dvs_err(tc_img, G_img):
     return cpydvs.dvs_error(tc_img, G_img)
 
 
+def dvs_flow_err(tc_img, G_img):
+    return cpydvs.dvs_flow_error(tc_img, G_img)
+
+
 def get_slice(cloud, idx, ts, width, mode=0, idx_step=0.01):
     if (cloud.shape[0] == 0):
         return cloud, np.array([0])
