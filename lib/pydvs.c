@@ -266,7 +266,7 @@ static PyObject* dvs_flow_error(PyObject* self, PyObject* args)
     }
 
     // Another magic number
-    if (cnt < 100) {
+    if (cnt < 10) {
         dx = 0;
         dy = 0;    
         rot = 0;
