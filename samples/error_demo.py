@@ -111,7 +111,7 @@ class AlignmentErrorTool:
     def minimize_timg(self):
         # Initial errors
         self.iteration_step()
-        divs = [0.001, 0.001, 10.0, 10.0]
+        divs = [0.0001, 0.0001, 10.0, 10.0]
         
         old_x_err = self.x_err
         old_y_err = self.y_err
@@ -135,11 +135,13 @@ class AlignmentErrorTool:
             eyaw_step = 0 * self.yaw_err / divs[2]
             ez_step = 0 * self.z_err / divs[3]
 
-            if (abs(ex_step) < 1e-3 and abs(ey_step) < 1e-3 and 
+            if (abs(ex_step) < 1e-2 and abs(ey_step) < 1e-2 and 
                 abs(eyaw_step) < 1e-3 and abs(ez_step) < 1e-3):
                 break
            
-            if (abs(self.x_err) < 1e-2 and abs(self.y_err) < 1e-2 and 
+            self.yaw_err = 0
+            self.z_err = 0
+            if (abs(self.x_err) < 1e-4 and abs(self.y_err) < 1e-4 and 
                 abs(self.yaw_err) < 1e-2 and abs(self.z_err) < 1e-2):
                 break
 
