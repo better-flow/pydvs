@@ -1,17 +1,10 @@
 import sys, os, shutil
-
-try:
-    sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
-except:
-    pass
-
 import yaml
 import cv2
 import numpy as np
 from math import fabs, sqrt
 
-
-# The dvs-related stuff, implemented in C.
+# The dvs-related functionality implemented in C.
 import cpydvs
 
 
@@ -102,15 +95,15 @@ def read_calib_txt(fname):
         K[1][1] = calib[1]
         K[0][2] = calib[2]
         K[1][2] = calib[3]
-        D[0] = calib[4]        
+        D[0] = calib[4]
         D[1] = calib[5]
-        D[2] = calib[6]        
+        D[2] = calib[6]
         D[3] = calib[7]
         return K, D
 
     K_txt = lines[0:3]
     D_txt = lines[4]
-    
+
     for i, line in enumerate(K_txt):
         for j, num_txt in enumerate(line.split(' ')[0:3]):
             K[i][j] = float(num_txt)
@@ -183,7 +176,7 @@ def dvs_img(cloud, shape, model=None, scale=None, K=None, D=None):
 
     timg /= cnt_img
 
-    # Undistortion may affect the event counts   
+    # Undistortion may affect the event counts
     timg[cnt_img < 0.9] = 0
     return cmb
 
