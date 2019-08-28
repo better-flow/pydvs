@@ -108,43 +108,59 @@ def aos2soa(aos, keys=[]):
     return ret
 
 
-def save_plot(frames_meta, oids, file_name):
+def d(arr):
+    ret = [0]
+    for i in range(1, len(arr) - 1):
+        ret.append((arr[i + 1] - arr[i - 1]))
+    ret.append(ret[-1])
+    ret[0] = ret[1]
+    return np.array(ret)
+
+
+def save_plot(frames_meta, oids, file_name, tp='vel'):
     plottable_meta = aos2soa(frames_meta)
     plt.rcParams['lines.linewidth'] = 0.8
     fig, axs = plt.subplots(2 * (len(oids) + 1), 1)
 
-    axs[0].plot(plottable_meta['ts'], plottable_meta['cam']['vel']['t']['x'], label='X axis (up - down)')
-    axs[0].plot(plottable_meta['ts'], plottable_meta['cam']['vel']['t']['y'], label='Y axis (left - right)')
-    axs[0].plot(plottable_meta['ts'], plottable_meta['cam']['vel']['t']['z'], label='Z axis (forward - backward)')
+    #axs[0].plot(plottable_meta['ts'], 100 * d(plottable_meta['ts']), label='dt')
+    #axs[0].plot(plottable_meta['ts'], 100 * d(plottable_meta['cam']['pos']['t']['x']), label='dp')
+    #axs[0].plot(plottable_meta['ts'], d(plottable_meta['cam']['pos']['t']['x']) / d(plottable_meta['ts']), label='vel')
+
+    axs[0].plot(plottable_meta['ts'], plottable_meta['cam']['pos']['t']['x'], 'o-', label='pos')
+    axs[0].plot(plottable_meta['ts'], plottable_meta['cam']['vel']['t']['x'], 'o-', label='vel')
+    #axs[0].plot(plottable_meta['ts'], plottable_meta['cam'][tp]['t']['x'], label='X axis (up - down)')
+
+    #axs[0].plot(plottable_meta['ts'], plottable_meta['cam'][tp]['t']['y'], label='Y axis (left - right)')
+    #axs[0].plot(plottable_meta['ts'], plottable_meta['cam'][tp]['t']['z'], label='Z axis (forward - backward)')
     axs[0].set_ylabel('camera linear (m/s)')
     axs[0].grid()
     axs[0].legend()
-    axs[1].plot(plottable_meta['ts'], plottable_meta['cam']['vel']['rpy']['r'], label='X axis')
-    axs[1].plot(plottable_meta['ts'], plottable_meta['cam']['vel']['rpy']['p'], label='Y axis')
-    axs[1].plot(plottable_meta['ts'], plottable_meta['cam']['vel']['rpy']['y'], label='Z axis')
+    axs[1].plot(plottable_meta['ts'], plottable_meta['cam'][tp]['rpy']['r'], label='X axis')
+    axs[1].plot(plottable_meta['ts'], plottable_meta['cam'][tp]['rpy']['p'], label='Y axis')
+    axs[1].plot(plottable_meta['ts'], plottable_meta['cam'][tp]['rpy']['y'], label='Z axis')
     axs[1].set_xlabel('frame')
-    axs[1].set_ylabel('camera angular (deg/s)')
+    axs[1].set_ylabel('camera angular (rad/s)')
     axs[1].grid()
     axs[1].legend()
 
     for k, id_ in enumerate(oids):
-        axs[2 * k + 2].plot(plottable_meta['ts'], plottable_meta[id_]['vel']['t']['x'], label='X axis')
-        axs[2 * k + 2].plot(plottable_meta['ts'], plottable_meta[id_]['vel']['t']['y'], label='Y axis')
-        axs[2 * k + 2].plot(plottable_meta['ts'], plottable_meta[id_]['vel']['t']['z'], label='Z axis')
+        axs[2 * k + 2].plot(plottable_meta['ts'], plottable_meta[id_][tp]['t']['x'], label='X axis')
+        axs[2 * k + 2].plot(plottable_meta['ts'], plottable_meta[id_][tp]['t']['y'], label='Y axis')
+        axs[2 * k + 2].plot(plottable_meta['ts'], plottable_meta[id_][tp]['t']['z'], label='Z axis')
         axs[2 * k + 2].set_ylabel('object_' + str(id_) + ' linear (m/s)')
         axs[2 * k + 2].grid()
         axs[2 * k + 2].legend()
-        axs[2 * k + 3].plot(plottable_meta['ts'], plottable_meta[id_]['vel']['rpy']['r'], label='X axis')
-        axs[2 * k + 3].plot(plottable_meta['ts'], plottable_meta[id_]['vel']['rpy']['p'], label='Y axis')
-        axs[2 * k + 3].plot(plottable_meta['ts'], plottable_meta[id_]['vel']['rpy']['y'], label='Z axis')
+        axs[2 * k + 3].plot(plottable_meta['ts'], plottable_meta[id_][tp]['rpy']['r'], label='X axis')
+        axs[2 * k + 3].plot(plottable_meta['ts'], plottable_meta[id_][tp]['rpy']['p'], label='Y axis')
+        axs[2 * k + 3].plot(plottable_meta['ts'], plottable_meta[id_][tp]['rpy']['y'], label='Z axis')
         axs[2 * k + 3].set_xlabel('frame')
-        axs[2 * k + 3].set_ylabel('object_' + str(id_) + ' angular (deg/s)')
+        axs[2 * k + 3].set_ylabel('object_' + str(id_) + ' angular (rad/s)')
         axs[2 * k + 3].grid()
         axs[2 * k + 3].legend()
 
     fig.set_size_inches(0.03 * len(plottable_meta['ts']), 8 * (1 + len(oids)))
     plt.savefig(file_name, dpi=400, bbox_inches='tight')
-
+    plt.show()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -201,7 +217,8 @@ if __name__ == '__main__':
     print (D)
 
     # Create a plot
-    save_plot(frames_meta, oids, os.path.join(args.base_dir, 'velocity_plots.pdf'))
+    save_plot(frames_meta, oids, os.path.join(args.base_dir, 'velocity_plots.pdf'), tp='vel')
+    save_plot(dataset_txt['full_trajectory'], oids, os.path.join(args.base_dir, 'velocity_plots_full.pdf'), tp='vel')
 
     # Read depth / masks
     print (pydvs.bld("Reading the depth and masks:"))
