@@ -33,9 +33,9 @@ def dvs_img(cloud, shape, K, D):
 
 
 def mask_to_color(mask):
-    colors = [[255,255,0], [0,255,255], [255,0,255], 
+    colors = [[255,255,0], [0,255,255], [255,0,255],
               [0,255,0],   [0,0,255],   [255,0,0]]
-     
+
     cmb = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.float32)
     m_ = np.max(mask) + 500
     m_ = max(m_, 3500)
@@ -128,7 +128,7 @@ if __name__ == '__main__':
         cimg = eimg[:,:,0] + eimg[:,:,2]
 
         depth = np.dstack((depth, depth * 0, cimg))
-        
+
         col_mask = mask_to_color(mask)
         eimg = np.hstack((depth, col_mask))
 
