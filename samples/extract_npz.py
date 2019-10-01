@@ -59,6 +59,10 @@ if __name__ == '__main__':
                         type=float,
                         required=False,
                         default=0.05)
+    parser.add_argument('--fps',
+                        type=float,
+                        required=False,
+                        default=-1)
     parser.add_argument('--no_undist',
                         action='store_true',
                         required=False,
@@ -76,16 +80,38 @@ if __name__ == '__main__':
     cloud          = sl_npz['events']
     idx            = sl_npz['index']
     discretization = sl_npz['discretization']
-    depth_gt       = sl_npz['depth']
-    mask_gt        = sl_npz['mask']
-    gt_ts          = sl_npz['gt_ts']
-    K = None
-    D = None
-
     slice_width = args.width
 
     first_ts = cloud[0][0]
     last_ts = cloud[-1][0]
+
+    with_depth = True
+    try:
+        depth_gt = sl_npz['depth']
+    except:
+        with_depth = False
+
+    with_mask = True
+    try:
+        mask_gt = sl_npz['mask']
+    except:
+        with_mask = False
+
+    with_gt_ts = True
+    try:
+        gt_ts = sl_npz['gt_ts']
+    except:
+        with_gt_ts = False
+
+    if (not with_gt_ts):
+        if (args.fps <= 0.0):
+            print ("No ground truth timestamps available; please specify framerate from cli!")
+            sys.exit(0)
+        gt_ts = np.arange(first_ts, last_ts, 1.0 / args.fps)
+        with_gt_ts = True
+
+    K = None
+    D = None
 
     if (not args.no_undist):
         K = sl_npz['K']
@@ -111,25 +137,31 @@ if __name__ == '__main__':
         if (time > last_ts or time < first_ts):
             continue
 
-        depth = pydvs.undistort_img(depth_gt[i], K, D)
-        mask  = pydvs.undistort_img(mask_gt[i], K, D)
+        if (with_depth):
+            depth = pydvs.undistort_img(depth_gt[i], K, D)
+            cv2.imwrite(os.path.join(slice_dir, 'depth_' + str(i).rjust(10, '0') + '.png'), depth.astype(np.uint16))
+
+        if (with_mask):
+            mask  = pydvs.undistort_img(mask_gt[i], K, D)
+            cv2.imwrite(os.path.join(slice_dir, 'mask_'  + str(i).rjust(10, '0') + '.png'), mask.astype(np.uint16))
 
         sl, _ = pydvs.get_slice(cloud, idx, time, args.width, args.mode, discretization)
 
         eimg = dvs_img(sl, global_shape, K, D)
         cv2.imwrite(os.path.join(slice_dir, 'frame_' + str(i).rjust(10, '0') + '.png'), eimg)
-        cv2.imwrite(os.path.join(slice_dir, 'depth_' + str(i).rjust(10, '0') + '.png'), depth.astype(np.uint16))
-        cv2.imwrite(os.path.join(slice_dir, 'mask_'  + str(i).rjust(10, '0') + '.png'), mask.astype(np.uint16))
 
-        nmin = np.nanmin(depth)
-        nmax = np.nanmax(depth)
-
-        depth = (depth - nmin) / (nmax - nmin) * 255
         cimg = eimg[:,:,0] + eimg[:,:,2]
 
-        depth = np.dstack((depth, depth * 0, cimg))
+        depth = cimg
+        if (with_depth):
+            nmin = np.nanmin(depth)
+            nmax = np.nanmax(depth)
+            depth = (depth - nmin) / (nmax - nmin) * 255
+            depth = np.dstack((depth, depth * 0, cimg))
 
-        col_mask = mask_to_color(mask)
-        eimg = np.hstack((depth, col_mask))
+        eimg = depth
+        if (with_mask):
+            col_mask = mask_to_color(mask)
+            eimg = np.hstack((depth, col_mask))
 
         cv2.imwrite(os.path.join(vis_dir, 'frame_' + str(i).rjust(10, '0') + '.png'), eimg)
