@@ -4,6 +4,12 @@ import cv2
 import numpy as np
 from math import fabs, sqrt
 
+with_rosbag = True
+try:
+    import rosbag
+except:
+    with_rosbag = False
+
 # The dvs-related functionality implemented in C.
 import cpydvs
 
@@ -132,6 +138,66 @@ def get_index(cloud, index_w):
 def read_event_file_txt(fname, discretization):
     print (okb("Reading the event file as a text file..."))
     cloud = np.loadtxt(fname, dtype=np.float)
+    if (cloud.shape[0] == 0):
+        print (wrn("Read 0 events from " + fname + "!"))
+    else:
+        t0 = cloud[0][0]
+        if (cloud[0][0] > 1e5):
+            cloud[:,0] -= t0
+            print (wrn("Adjusting initial timestamp to 0!"))
+
+    print (okb("Indexing..."))
+    idx = get_index(cloud, discretization)
+    return cloud.astype(np.float32), idx
+
+
+def read_event_file_bag(fname, discretization, event_topic):
+    if (not with_rosbag):
+        print (wrn("rosbag not found!"))
+        return None, None
+
+    print (okb("Reading events from a bag file..."), "topic:", event_topic)
+    with rosbag.Bag(fname, 'r') as bag:
+        if (event_topic not in bag.get_type_and_topic_info()[1].keys()):
+            print (wrn("topic '" + event_topic + "' is not found in bag " + fname))
+            print ("Available topics:", bag.get_type_and_topic_info()[1].keys())
+            return None, None
+
+    ecount = 0
+    msg_cnt = 0
+    msg_list = []
+    first_event_ts = None
+    with rosbag.Bag(fname, 'r') as bag:
+        msg_cnt = bag.get_message_count(topic_filters = [event_topic])
+
+        for i, (topic, msg, t) in enumerate(bag.read_messages(topics = [event_topic])):
+            if topic == event_topic:
+                if (ecount == 0 and len(msg.events) > 0):
+                    first_event_ts = msg.events[0].ts
+                ecount += len(msg.events)
+                msg_list.append(msg)
+                sys.stdout.write("read message " + str(i) + " / " + str(msg_cnt) + "\t\t\r")
+
+        print ("\nFound", ecount, "events")
+
+    cloud = np.zeros((ecount, 4), dtype=np.float32)
+    eid = 0
+    for i, msg in enumerate(msg_list):
+        for e in msg.events:
+            cloud[eid][0] = (e.ts - first_event_ts).to_sec()
+            cloud[eid][1] = e.x
+            cloud[eid][2] = e.y
+            if (e.polarity):
+                cloud[eid][3] = 1
+            else:
+                cloud[eid][3] = 0
+            eid += 1
+        if (i % 10 == 0):
+            sys.stdout.write("convert to npz " + str(i) + " / " + str(msg_cnt) + "\t\t\r")
+
+    print ()
+    cloud[cloud[:,0].argsort()]
+
     if (cloud.shape[0] == 0):
         print (wrn("Read 0 events from " + fname + "!"))
     else:
