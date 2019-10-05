@@ -165,7 +165,6 @@ def read_event_file_bag(fname, discretization, event_topic):
 
     ecount = 0
     msg_cnt = 0
-    msg_list = []
     first_event_ts = None
     with rosbag.Bag(fname, 'r') as bag:
         msg_cnt = bag.get_message_count(topic_filters = [event_topic])
@@ -175,25 +174,27 @@ def read_event_file_bag(fname, discretization, event_topic):
                 if (ecount == 0 and len(msg.events) > 0):
                     first_event_ts = msg.events[0].ts
                 ecount += len(msg.events)
-                msg_list.append(msg)
                 sys.stdout.write("read message " + str(i) + " / " + str(msg_cnt) + "\t\t\r")
 
         print ("\nFound", ecount, "events")
 
     cloud = np.zeros((ecount, 4), dtype=np.float32)
     eid = 0
-    for i, msg in enumerate(msg_list):
-        for e in msg.events:
-            cloud[eid][0] = (e.ts - first_event_ts).to_sec()
-            cloud[eid][1] = e.x
-            cloud[eid][2] = e.y
-            if (e.polarity):
-                cloud[eid][3] = 1
-            else:
-                cloud[eid][3] = 0
-            eid += 1
-        if (i % 10 == 0):
-            sys.stdout.write("convert to npz " + str(i) + " / " + str(msg_cnt) + "\t\t\r")
+
+    with rosbag.Bag(fname, 'r') as bag:
+        for i, (topic, msg, t) in enumerate(bag.read_messages(topics = [event_topic])):
+            if topic == event_topic:
+                for e in msg.events:
+                    cloud[eid][0] = (e.ts - first_event_ts).to_sec()
+                    cloud[eid][1] = e.x
+                    cloud[eid][2] = e.y
+                    if (e.polarity):
+                        cloud[eid][3] = 1
+                    else:
+                        cloud[eid][3] = 0
+                    eid += 1
+            if (i % 10 == 0):
+                sys.stdout.write("convert to npz " + str(i) + " / " + str(msg_cnt) + "\t\t\r")
 
     print ()
     cloud[cloud[:,0].argsort()]
