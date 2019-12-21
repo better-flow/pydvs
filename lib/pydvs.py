@@ -121,23 +121,32 @@ def read_calib_txt(fname):
 
 
 def get_index(cloud, index_w):
+    print (okb("Indexing..."))
+
     idx = [0]
     if (cloud.shape[0] < 2):
         return np.array(idx, dtype=np.uint32)
 
     last_ts = cloud[0][0]
     for i, e in enumerate(cloud):
+        sys.stdout.write("\r" + str(i + 1) + ' / ' +str(len(cloud)) + '\t\t')
         while (e[0] - last_ts > index_w):
+            if (e[0] - last_ts > 1.0):
+                print (wrn("\nGap in the events:"), e[0] - last_ts, 'sec.')
             idx.append(i)
             last_ts += index_w
 
+    print ()
     idx.append(cloud.shape[0] - 1)
     return np.array(idx, dtype=np.uint32)
 
 
-def read_event_file_txt(fname, discretization):
+def read_event_file_txt(fname, discretization, sort=False):
     print (okb("Reading the event file as a text file..."))
     cloud = np.loadtxt(fname, dtype=np.float)
+    if (sort):
+        cloud = cloud[cloud[:,0].argsort()]
+
     if (cloud.shape[0] == 0):
         print (wrn("Read 0 events from " + fname + "!"))
     else:
@@ -146,7 +155,8 @@ def read_event_file_txt(fname, discretization):
             cloud[:,0] -= t0
             print (wrn("Adjusting initial timestamp to 0!"))
 
-    print (okb("Indexing..."))
+    print (okg("Read"), cloud.shape[0], okg("events:"), cloud[0][0], "-", cloud[-1][0], "sec.")
+
     idx = get_index(cloud, discretization)
     return cloud.astype(np.float32), idx
 
