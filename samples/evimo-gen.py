@@ -202,7 +202,7 @@ if __name__ == '__main__':
         if (type(frames_meta[0][key]) == type(dict()) and 'pos' in frames_meta[0][key]):
             oids.append(key)
 
-    print (pydvs.okb("Resolution:"), RES_Y, 'x', RES_X)
+    print (pydvs.okb("Resolution:"), RES_X, 'x', RES_Y)
     print (pydvs.okb("Frames:"), NUM_FRAMES)
     print (pydvs.okb("Object ids:"), oids)
     print (pydvs.okb("Calibration:"))
@@ -215,9 +215,9 @@ if __name__ == '__main__':
 
     # Read depth / masks
     print (pydvs.bld("Reading the depth and masks:"))
-    depths    = np.zeros((NUM_FRAMES,) + (RES_X, RES_Y))
-    masks     = np.zeros((NUM_FRAMES,) + (RES_X, RES_Y))
-    classical = np.zeros((NUM_FRAMES,) + (RES_X, RES_Y))
+    depths    = np.zeros((NUM_FRAMES,) + (RES_Y, RES_X))
+    masks     = np.zeros((NUM_FRAMES,) + (RES_Y, RES_X))
+    classical = np.zeros((NUM_FRAMES,) + (RES_Y, RES_X))
     classical_read = 0
     for i, frame in enumerate(frames_meta):
         print ("frame\t", i + 1, "/", NUM_FRAMES, "\t", end='\r')
@@ -270,13 +270,13 @@ if __name__ == '__main__':
 
         depth = depths[i]
         mask  = masks[i]
-        eimg = dvs_img(sl, (RES_X, RES_Y), None, None, args.slice_width, mode=0)
+        eimg = dvs_img(sl, (RES_Y, RES_X), None, None, args.slice_width, mode=0)
 
         cv2.imwrite(os.path.join(slice_dir, 'frame_' + str(i).rjust(10, '0') + '.png'), eimg)
         cv2.imwrite(os.path.join(slice_dir, 'depth_' + str(i).rjust(10, '0') + '.png'), depth.astype(np.uint16))
         cv2.imwrite(os.path.join(slice_dir, 'mask_'  + str(i).rjust(10, '0') + '.png'), mask.astype(np.uint16))
 
-        eimg = dvs_img(sl, (RES_X, RES_Y), None, None, args.slice_width, mode=1)
+        eimg = dvs_img(sl, (RES_Y, RES_X), None, None, args.slice_width, mode=1)
 
         nmin = np.nanmin(depth)
         nmax = np.nanmax(depth)
