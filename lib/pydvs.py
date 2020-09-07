@@ -207,7 +207,7 @@ def read_event_file_bag(fname, discretization, event_topic):
                 sys.stdout.write("convert to npz " + str(i) + " / " + str(msg_cnt) + "\t\t\r")
 
     print ()
-    cloud[cloud[:,0].argsort()]
+    cloud = cloud[cloud[:,0].argsort()]
 
     if (cloud.shape[0] == 0):
         print (wrn("Read 0 events from " + fname + "!"))
