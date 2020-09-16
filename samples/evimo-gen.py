@@ -9,7 +9,12 @@ import pydvs
 
 
 def mask_to_color(mask):
-    colors = [[0,255,0], [0,0,255], [255,0,0], [56,62,43], [26,50,63], [36,55,56]]
+    #colors = [[0,255,0], [0,0,255], [255,0,0], [56,62,43], [26,50,63], [36,55,56]]
+    colors = [[84, 71, 140],   [44, 105, 154], [4, 139, 168],
+              [13, 179, 158],  [22, 219, 147], [131, 227, 119],
+              [185, 231, 105], [239, 234, 90], [241, 196, 83],
+              [242, 158, 76]]
+
     cmb = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.float32)
     m_ = np.max(mask) + 500
     m_ = max(m_, 3500)
@@ -243,7 +248,12 @@ if __name__ == '__main__':
 
     # Read event cloud
     cloud, idx = pydvs.read_event_file_txt(os.path.join(args.base_dir, 'events.txt'), args.discretization)
-    print (pydvs.okb("The recording range:"), cloud[0][0], "-", cloud[-1][0])
+    tmin = frames_meta[0]['ts']
+    tmax = frames_meta[-1]['ts']
+    if (cloud.shape[0] > 0):
+        tmin = cloud[0][0]
+        tmax = cloud[-1][0]
+    print (pydvs.okb("The recording range:"), tmin, "-", tmax)
     print (pydvs.okb("The gt range:"), frames_meta[0]['ts'], "-", frames_meta[-1]['ts'])
     print (pydvs.okb("Discretization resolution:"), args.discretization)
 
@@ -259,37 +269,43 @@ if __name__ == '__main__':
 
     pydvs.replace_dir(slice_dir)
     pydvs.replace_dir(vis_dir)
-
     for i, frame in enumerate(frames_meta):
         print ("Saving sanity check frames\t", i + 1, "/", NUM_FRAMES, "\t", end='\r')
         time = frame['ts']
-        if (time > cloud[-1][0] or time < cloud[0][0]):
+        if (time > tmax or time < tmin):
             continue
 
-        sl, _ = pydvs.get_slice(cloud, idx, time, args.slice_width, 1, args.discretization)
+        depth = depths[i].astype(np.float)
+        mask  = masks[i].astype(np.float)
 
-        depth = depths[i]
-        mask  = masks[i]
-        eimg = dvs_img(sl, (RES_Y, RES_X), None, None, args.slice_width, mode=0)
+        if (cloud.shape[0] > 0):
+            sl, _ = pydvs.get_slice(cloud, idx, time, args.slice_width, 1, args.discretization)
+            eimg = dvs_img(sl, (RES_Y, RES_X), None, None, args.slice_width, mode=0)
+            cv2.imwrite(os.path.join(slice_dir, 'frame_' + str(i).rjust(10, '0') + '.png'), eimg)
 
-        cv2.imwrite(os.path.join(slice_dir, 'frame_' + str(i).rjust(10, '0') + '.png'), eimg)
         cv2.imwrite(os.path.join(slice_dir, 'depth_' + str(i).rjust(10, '0') + '.png'), depth.astype(np.uint16))
         cv2.imwrite(os.path.join(slice_dir, 'mask_'  + str(i).rjust(10, '0') + '.png'), mask.astype(np.uint16))
 
-        eimg = dvs_img(sl, (RES_Y, RES_X), None, None, args.slice_width, mode=1)
-
         nmin = np.nanmin(depth)
         nmax = np.nanmax(depth)
-
-        eimg[:,:,2] = (depth - nmin) / (nmax - nmin) * 255
         col_mask = mask_to_color(mask)
 
         rgb_img = np.dstack((classical[i], classical[i], classical[i]))
         rgb_img[mask > 10] = rgb_img[mask > 10] * 0.5 + col_mask[mask > 10] * 0.5
-        eimg = np.hstack((rgb_img, eimg))
+ 
+        mask = (255 * (mask.astype(np.float) - np.nanmin(mask)) / (np.nanmax(mask) - np.nanmin(mask))).astype(np.uint8)
+        depth = (255 * (depth.astype(np.float) - nmin) / (nmax - nmin)).astype(np.uint8)
 
-        footer = gen_text_stub(eimg.shape[1], frame)
-        eimg = np.vstack((eimg, footer))
+        if (classical_read > 0):
+            rgb_img = np.rot90(rgb_img, k=2)
+            depth = np.rot90(depth, k=2)
+            eimg = np.hstack((rgb_img.astype(np.uint8), np.dstack((depth,depth,depth))))
+        else:
+            eimg = dvs_img(sl, (RES_Y, RES_X), None, None, args.slice_width, mode=0)
+            eimg = np.hstack((eimg.astype(np.uint8), np.dstack((mask,mask,mask)), np.dstack((depth,depth,depth))))
+
+        #footer = gen_text_stub(eimg.shape[1], frame)
+        #eimg = np.vstack((eimg, footer))
 
         cv2.imwrite(os.path.join(vis_dir, 'frame_' + str(i).rjust(10, '0') + '.png'), eimg)
     print (pydvs.okg("\nDone.\n"))

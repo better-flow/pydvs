@@ -149,6 +149,7 @@ def read_event_file_txt(fname, discretization, sort=False):
 
     if (cloud.shape[0] == 0):
         print (wrn("Read 0 events from " + fname + "!"))
+        return np.empty(shape=(0,4), dtype=np.float32), np.empty(shape=(0,), dtype=np.float32) 
     else:
         t0 = cloud[0][0]
         if (cloud[0][0] > 1e5):
