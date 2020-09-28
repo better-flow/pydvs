@@ -162,7 +162,7 @@ def read_event_file_txt(fname, discretization, sort=False):
     return cloud.astype(np.float32), idx
 
 
-def read_event_file_bag(fname, discretization, event_topic):
+def read_event_file_bag(fname, discretization, event_topic, sort=True, get_index=True):
     if (not with_rosbag):
         print (wrn("rosbag not found!"))
         return None, None
@@ -208,7 +208,9 @@ def read_event_file_bag(fname, discretization, event_topic):
                 sys.stdout.write("convert to npz " + str(i) + " / " + str(msg_cnt) + "\t\t\r")
 
     print ()
-    cloud = cloud[cloud[:,0].argsort()]
+    if (sort):
+        print ("Sorting event timestamps")
+        cloud = cloud[cloud[:,0].argsort()]
 
     if (cloud.shape[0] == 0):
         print (wrn("Read 0 events from " + fname + "!"))
@@ -217,6 +219,9 @@ def read_event_file_bag(fname, discretization, event_topic):
         if (cloud[0][0] > 1e5):
             cloud[:,0] -= t0
             print (wrn("Adjusting initial timestamp to 0!"))
+
+    if (not get_index):
+        return cloud.astype(np.float32), None
 
     print (okb("Indexing..."))
     idx = get_index(cloud, discretization)
