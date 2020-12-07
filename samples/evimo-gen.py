@@ -9,11 +9,13 @@ import pydvs
 
 
 def mask_to_color(mask):
-    #colors = [[0,255,0], [0,0,255], [255,0,0], [56,62,43], [26,50,63], [36,55,56]]
-    colors = [[84, 71, 140],   [44, 105, 154], [4, 139, 168],
-              [13, 179, 158],  [22, 219, 147], [131, 227, 119],
-              [185, 231, 105], [239, 234, 90], [241, 196, 83],
-              [242, 158, 76]]
+    colors = [[84, 71, 140],   [44, 105, 154],  [4, 139, 168],
+              [13, 179, 158],  [22, 219, 147],  [131, 227, 119],
+              [185, 231, 105], [239, 234, 90],  [241, 196, 83],
+              [242, 158, 76],  [239, 71, 111],  [255, 209, 102],
+              [6, 214, 160],   [17, 138, 178],  [7, 59, 76],
+              [6, 123, 194],   [132, 188, 218], [236, 195, 11],
+              [243, 119, 72],  [213, 96, 98]]
 
     cmb = np.zeros((mask.shape[0], mask.shape[1], 3), dtype=np.float32)
     m_ = np.max(mask) + 500
@@ -24,7 +26,6 @@ def mask_to_color(mask):
         cutoff_lo = 1000.0 * (i + 1.0) - 5
         cutoff_hi = 1000.0 * (i + 1.0) + 5
         cmb[np.where(np.logical_and(mask>=cutoff_lo, mask<=cutoff_hi))] = np.array(colors[i % len(colors)])
-    cmb *= 2.5
     return cmb
 
 
@@ -198,9 +199,6 @@ if __name__ == '__main__':
     NUM_FRAMES = len(dataset_txt['frames'])
     frames_meta = dataset_txt['frames']
 
-    D /= 10.0 # FIXME
-
-    # FIXME
     oids = []
     for key in frames_meta[0]:
         if (key == 'cam'): continue
@@ -245,6 +243,8 @@ if __name__ == '__main__':
 
     if (classical_read > 0):
         print (pydvs.okb("Read "), classical_read, "/", NUM_FRAMES, pydvs.okb(" classical frames"))
+    else:
+        classical = None
 
     # Read event cloud
     cloud, idx = pydvs.read_event_file_txt(os.path.join(args.base_dir, 'events.txt'), args.discretization)
@@ -259,7 +259,7 @@ if __name__ == '__main__':
 
     # Save .npz file
     print (pydvs.bld("Saving..."))
-    np.savez_compressed(os.path.join(args.base_dir, 'dataset.npz'), events=cloud, index=idx,
+    np.savez_compressed(os.path.join(args.base_dir, 'dataset.npz'), events=cloud, index=idx, classical=classical,
         discretization=args.discretization, K=K, D=D, depth=depths, mask=masks, meta=dataset_txt)
     print ("\n")
 
@@ -275,34 +275,32 @@ if __name__ == '__main__':
         if (time > tmax or time < tmin):
             continue
 
-        depth = depths[i].astype(np.float)
-        mask  = masks[i].astype(np.float)
+        cv2.imwrite(os.path.join(slice_dir, 'depth_' + str(i).rjust(10, '0') + '.png'), depths[i].astype(np.uint16))
+        cv2.imwrite(os.path.join(slice_dir, 'mask_'  + str(i).rjust(10, '0') + '.png'), masks[i].astype(np.uint16))
 
         if (cloud.shape[0] > 0):
             sl, _ = pydvs.get_slice(cloud, idx, time, args.slice_width, 1, args.discretization)
             eimg = dvs_img(sl, (RES_Y, RES_X), None, None, args.slice_width, mode=0)
             cv2.imwrite(os.path.join(slice_dir, 'frame_' + str(i).rjust(10, '0') + '.png'), eimg)
 
-        cv2.imwrite(os.path.join(slice_dir, 'depth_' + str(i).rjust(10, '0') + '.png'), depth.astype(np.uint16))
-        cv2.imwrite(os.path.join(slice_dir, 'mask_'  + str(i).rjust(10, '0') + '.png'), mask.astype(np.uint16))
-
-        nmin = np.nanmin(depth)
-        nmax = np.nanmax(depth)
+        depth = depths[i].astype(np.float)
+        mask  = masks[i].astype(np.float)
         col_mask = mask_to_color(mask)
 
-        rgb_img = np.dstack((classical[i], classical[i], classical[i]))
-        rgb_img[mask > 10] = rgb_img[mask > 10] * 0.5 + col_mask[mask > 10] * 0.5
- 
+        # normalize for visualization
         mask = (255 * (mask.astype(np.float) - np.nanmin(mask)) / (np.nanmax(mask) - np.nanmin(mask))).astype(np.uint8)
-        depth = (255 * (depth.astype(np.float) - nmin) / (nmax - nmin)).astype(np.uint8)
+        depth = (255 * (depth.astype(np.float) - np.nanmin(depth)) / (np.nanmax(depth) - np.nanmin(depth))).astype(np.uint8)
 
-        if (classical_read > 0):
+        if ((classical_read > 0) and (classical is not None)):
+            rgb_img = np.dstack((classical[i], classical[i], classical[i]))
+            rgb_img[mask > 0] = rgb_img[mask > 0] * 0.2 + col_mask[mask > 0] * 0.8
             rgb_img = np.rot90(rgb_img, k=2)
             depth = np.rot90(depth, k=2)
             eimg = np.hstack((rgb_img.astype(np.uint8), np.dstack((depth,depth,depth))))
         else:
             eimg = dvs_img(sl, (RES_Y, RES_X), None, None, args.slice_width, mode=0)
-            eimg = np.hstack((eimg.astype(np.uint8), np.dstack((mask,mask,mask)), np.dstack((depth,depth,depth))))
+            eimg[mask > 0] = eimg[mask > 0] * 0.5 + col_mask[mask > 0] * 0.5
+            eimg = np.hstack((eimg.astype(np.uint8), np.dstack((depth,depth,depth))))
 
         #footer = gen_text_stub(eimg.shape[1], frame)
         #eimg = np.vstack((eimg, footer))
