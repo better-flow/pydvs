@@ -218,26 +218,29 @@ if __name__ == '__main__':
 
     # Read depth / masks
     print (pydvs.bld("Reading the depth and masks:"))
-    depths    = np.zeros((NUM_FRAMES,) + (RES_Y, RES_X))
-    masks     = np.zeros((NUM_FRAMES,) + (RES_Y, RES_X))
-    classical = np.zeros((NUM_FRAMES,) + (RES_Y, RES_X))
+    depths    = np.zeros((NUM_FRAMES,) + (RES_Y, RES_X), dtype=np.uint16)
+    masks     = np.zeros((NUM_FRAMES,) + (RES_Y, RES_X), dtype=np.uint16)
+    classical = np.zeros((NUM_FRAMES,) + (RES_Y, RES_X, 3), dtype=np.uint8)
     classical_read = 0
     for i, frame in enumerate(frames_meta):
         print ("frame\t", i + 1, "/", NUM_FRAMES, "\t", end='\r')
 
         gt_frame_name = os.path.join(args.base_dir, frame['gt_frame'])
-        gt_img = cv2.imread(gt_frame_name, cv2.IMREAD_UNCHANGED).astype(dtype=np.float32)
+        gt_img = cv2.imread(gt_frame_name, cv2.IMREAD_UNCHANGED)
+        if (gt_img.dtype != depths.dtype or gt_img.dtype != masks.dtype):
+            print ("\tType mismatch! Expected", depths.dtype, " but have", gt_img.dtype)
+            sys.exit(-1)
 
-        depth = gt_img[:,:,0]
-        mask = gt_img[:,:,2]
-
-        depth[depth <= 10] = np.nan
-        depths[i,:,:] = depth
-        masks[i,:,:]  = mask
+        depths[i,:,:] = gt_img[:,:,0] # depth is in mm
+        masks[i,:,:]  = gt_img[:,:,2] # mask is object ids * 1000
 
         if ('classical_frame' in frame.keys()):
             classical_frame_name = os.path.join(args.base_dir, frame['classical_frame'])
-            classical[i,:,:] = cv2.imread(classical_frame_name, cv2.IMREAD_GRAYSCALE).astype(dtype=np.float32)
+            classical_img = cv2.imread(classical_frame_name, cv2.IMREAD_UNCHANGED)
+            classical[i,:,:,:] = classical_img
+            if (gt_img.dtype != depths.dtype or gt_img.dtype != masks.dtype):
+                print ("\tType mismatch! Expected", classical.dtype, " but have", classical_img.dtype)
+                sys.exit(-1)
             classical_read += 1
     print ("\n")
 
@@ -292,7 +295,8 @@ if __name__ == '__main__':
         depth = (255 * (depth.astype(np.float) - np.nanmin(depth)) / (np.nanmax(depth) - np.nanmin(depth))).astype(np.uint8)
 
         if ((classical_read > 0) and (classical is not None)):
-            rgb_img = np.dstack((classical[i], classical[i], classical[i]))
+            grayscale_img = cv2.cvtColor(classical[i], cv2.COLOR_BGR2GRAY).astype(np.float)
+            rgb_img = np.dstack((grayscale_img, grayscale_img, grayscale_img))
             rgb_img[mask > 0] = rgb_img[mask > 0] * 0.2 + col_mask[mask > 0] * 0.8
             rgb_img = np.rot90(rgb_img, k=2)
             depth = np.rot90(depth, k=2)
