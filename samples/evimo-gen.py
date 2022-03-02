@@ -1,11 +1,40 @@
 #!/usr/bin/python3
 
 import argparse
+import multiprocessing
+from multiprocessing import Pool
+import subprocess
 import numpy as np
 import matplotlib.pyplot as plt
 import os, sys, math, signal, glob
 import cv2
 import pydvs
+from tqdm import tqdm
+import shutil
+
+# https://stackoverflow.com/a/57364423
+# istarmap.py for Python 3.8+
+import multiprocessing.pool as mpp
+def istarmap(self, func, iterable, chunksize=1):
+    """starmap-version of imap
+    """
+    self._check_running()
+    if chunksize < 1:
+        raise ValueError(
+            "Chunksize must be 1+, not {0:n}".format(
+                chunksize))
+
+    task_batches = mpp.Pool._get_tasks(func, iterable, chunksize)
+    result = mpp.IMapIterator(self)
+    self._taskqueue.put(
+        (
+            self._guarded_task_generation(result._job,
+                                          mpp.starmapstar,
+                                          task_batches),
+            result._set_length
+        ))
+    return (item for chunk in result for item in chunk)
+mpp.Pool.istarmap = istarmap
 
 
 def mask_to_color(mask):
@@ -175,8 +204,11 @@ if __name__ == '__main__':
                         type=float,
                         required=False,
                         default=0.05)
-
+    parser.add_argument('--skip_slice_vis', action='store_true')
+    parser.add_argument('--evimo2_npz', action='store_true')
+    parser.add_argument('--evimo2_no_compress', action='store_true')
     args = parser.parse_args()
+
     print (pydvs.okb("Opening"), args.base_dir)
 
     dataset_txt = eval(open(os.path.join(args.base_dir, 'meta.txt')).read())
@@ -218,35 +250,70 @@ if __name__ == '__main__':
 
     # Read depth / masks
     print (pydvs.bld("Reading the depth and masks:"))
-    depths    = np.zeros((NUM_FRAMES,) + (RES_Y, RES_X), dtype=np.uint16)
-    masks     = np.zeros((NUM_FRAMES,) + (RES_Y, RES_X), dtype=np.uint16)
-    classical = np.zeros((NUM_FRAMES,) + (RES_Y, RES_X, 3), dtype=np.uint8)
-    classical_read = 0
-    for i, frame in enumerate(frames_meta):
-        print ("frame\t", i + 1, "/", NUM_FRAMES, "\t", end='\r')
 
+
+    if args.evimo2_npz:
+        pydvs.replace_dir(os.path.join(args.base_dir, 'depth_npy'))
+        pydvs.replace_dir(os.path.join(args.base_dir, 'mask_npy'))
+        pydvs.replace_dir(os.path.join(args.base_dir, 'classical_npy'))
+    else:
+        # For original EVIMO npz format, there is no easy way around these big arrays
+        # because the entire array needs to be passed to savez_compressed
+        # however, we can memory map them, so at least we do not run out of RAM
+        depths    = np.memmap(os.path.join(args.base_dir, 'dataset_depth.mm'), mode='w+', shape=(NUM_FRAMES,) + (RES_Y, RES_X), dtype=np.uint16)
+        masks     = np.memmap(os.path.join(args.base_dir, 'dataset_masks.mm'), mode='w+', shape=(NUM_FRAMES,) + (RES_Y, RES_X), dtype=np.uint16)
+        classical = np.memmap(os.path.join(args.base_dir, 'dataset_classical.mm'), mode='w+', shape=(NUM_FRAMES,) + (RES_Y, RES_X, 3), dtype=np.uint8)
+
+    def load_frame(i, frame):
         gt_frame_name = os.path.join(args.base_dir, frame['gt_frame'])
         gt_img = cv2.imread(gt_frame_name, cv2.IMREAD_UNCHANGED)
-        if (gt_img.dtype != depths.dtype or gt_img.dtype != masks.dtype):
-            print ("\tType mismatch! Expected", depths.dtype, " but have", gt_img.dtype)
-            sys.exit(-1)
+        if not args.evimo2_npz:
+            if (gt_img.dtype != depths.dtype or gt_img.dtype != masks.dtype):
+                print ("\tType mismatch! Expected", depths.dtype, " but have", gt_img.dtype)
+                sys.exit(-1)
 
-        depths[i,:,:] = gt_img[:,:,0] # depth is in mm
-        masks[i,:,:]  = gt_img[:,:,2] # mask is object ids * 1000
+        if args.evimo2_npz:
+            depth_name = os.path.join(args.base_dir, 'depth_npy', 'depth_' + str(i).rjust(10, '0') + '.npy')
+            mask_name  = os.path.join(args.base_dir, 'mask_npy', 'mask_' + str(i).rjust(10, '0') + '.npy')
+            np.save(depth_name, gt_img[:, :, 0], allow_pickle=False)
+            np.save(mask_name,  gt_img[:, :, 2], allow_pickle=False)
+        else:
+            depths[i,:,:] = gt_img[:,:,0] # depth is in mm
+            masks[i,:,:]  = gt_img[:,:,2] # mask is object ids * 1000
 
         if ('classical_frame' in frame.keys()):
             classical_frame_name = os.path.join(args.base_dir, frame['classical_frame'])
             classical_img = cv2.imread(classical_frame_name, cv2.IMREAD_UNCHANGED)
-            classical[i,:,:,:] = classical_img
-            if (gt_img.dtype != depths.dtype or gt_img.dtype != masks.dtype):
-                print ("\tType mismatch! Expected", classical.dtype, " but have", classical_img.dtype)
-                sys.exit(-1)
-            classical_read += 1
+            if args.evimo2_npz:
+                classical_name = os.path.join(args.base_dir, 'classical_npy', 'classical_' + str(i).rjust(10, '0') + '.npy')
+                np.save(classical_name, classical_img, allow_pickle=False)
+            else:
+                classical[i,:,:,:] = classical_img
+
+            if not args.evimo2_npz:
+                if (gt_img.dtype != depths.dtype or gt_img.dtype != masks.dtype):
+                    print ("\tType mismatch! Expected", classical.dtype, " but have", classical_img.dtype)
+                    sys.exit(-1)
+            return 1
+        return 0
+
+    num_cpu = multiprocessing.cpu_count()
+    print('Using {} processes'.format(num_cpu))
+    with Pool(num_cpu) as p:
+        classical_read_list = list(tqdm(p.istarmap(load_frame, enumerate(frames_meta)), total=len(frames_meta)))
+
+    classical_read = np.sum(classical_read_list)
+
     print ("\n")
 
     if (classical_read > 0):
         print (pydvs.okb("Read "), classical_read, "/", NUM_FRAMES, pydvs.okb(" classical frames"))
     else:
+        if not args.evimo2_npz:
+            print (pydvs.wrn("Removing mmap file: ") + pydvs.okb(os.path.join(args.base_dir, 'dataset_classical.mm')))
+            classical._mmap.close()
+            os.remove(os.path.join(args.base_dir, 'dataset_classical.mm'))
+
         classical = None
 
     # Read event cloud
@@ -262,8 +329,33 @@ if __name__ == '__main__':
 
     # Save .npz file
     print (pydvs.bld("Saving..."))
-    np.savez_compressed(os.path.join(args.base_dir, 'dataset.npz'), events=cloud, index=idx, classical=classical,
-        discretization=args.discretization, K=K, D=D, depth=depths, mask=masks, meta=dataset_txt)
+    # Save in EVIMO2 format
+    if args.evimo2_npz:
+        np.savez(os.path.join(args.base_dir, 'dataset_info.npz'),
+                 index=idx, discretization=args.discretization, K=K, D=D, meta=dataset_txt)
+        np.save(os.path.join(args.base_dir, 'dataset_events_t.npy'), cloud[:, 0])
+        np.save(os.path.join(args.base_dir, 'dataset_events_xy.npy'), cloud[:, 1:3].astype(np.uint16))
+        np.save(os.path.join(args.base_dir, 'dataset_events_p.npy'), cloud[:, 0].astype(np.uint8))
+
+        # If not compressed, the npy files can be compressed later in batches
+        # which will greatly increase throughput when processing the entire dataset
+        if not args.evimo2_no_compress:
+            npz_pairs = [(os.path.join(args.base_dir, 'dataset_depth.npz'),     os.path.join(args.base_dir, 'depth_npy')),
+                         (os.path.join(args.base_dir, 'dataset_mask.npz'),      os.path.join(args.base_dir, 'mask_npy'))]
+
+            if classical_read > 0:
+                npz_pairs.append((os.path.join(args.base_dir, 'dataset_classical.npz'), os.path.join(args.base_dir, 'classical_npy')))
+
+            print (pydvs.bld("Compressing .npy into npz:"))
+            print('Using {} processes'.format(len(npz_pairs)))
+            compress_processes = [subprocess.Popen(['zip', '-rjq', filename, folder], cwd=args.base_dir)
+                                      for filename, folder in npz_pairs]
+            [p.wait() for p in compress_processes]
+
+    # Save in original EVIMO format (takes a long time)
+    else:
+        np.savez_compressed(os.path.join(args.base_dir, 'dataset.npz'), events=cloud, index=idx, classical=classical,
+            discretization=args.discretization, K=K, D=D, depth=depths, mask=masks, meta=dataset_txt)
     print ("\n")
 
     # Generate images:
@@ -272,32 +364,49 @@ if __name__ == '__main__':
 
     pydvs.replace_dir(slice_dir)
     pydvs.replace_dir(vis_dir)
-    for i, frame in enumerate(frames_meta):
-        print ("Saving sanity check frames\t", i + 1, "/", NUM_FRAMES, "\t", end='\r')
+
+    def save_visualization(i, frame):
         time = frame['ts']
         if (time > tmax or time < tmin):
-            continue
+            return
 
-        cv2.imwrite(os.path.join(slice_dir, 'depth_' + str(i).rjust(10, '0') + '.png'), depths[i].astype(np.uint16))
-        cv2.imwrite(os.path.join(slice_dir, 'mask_'  + str(i).rjust(10, '0') + '.png'), masks[i].astype(np.uint16))
+        if args.evimo2_npz:
+            depth_name = os.path.join(args.base_dir, 'depth_npy', 'depth_' + str(i).rjust(10, '0') + '.npy')
+            mask_name  = os.path.join(args.base_dir, 'mask_npy', 'mask_' + str(i).rjust(10, '0') + '.npy')
+
+            depth = np.load(depth_name)
+            mask  = np.load(mask_name)
+        else:
+            depth = depths[i]
+            mask  = masks[i]
+
+        if not args.skip_slice_vis:
+            cv2.imwrite(os.path.join(slice_dir, 'depth_' + str(i).rjust(10, '0') + '.png'), depth.astype(np.uint16))
+            cv2.imwrite(os.path.join(slice_dir, 'mask_'  + str(i).rjust(10, '0') + '.png'), mask.astype(np.uint16))
 
         if (cloud.shape[0] > 0):
             sl, _ = pydvs.get_slice(cloud, idx, time, args.slice_width, 1, args.discretization)
-            eimg = dvs_img(sl, (RES_Y, RES_X), None, None, args.slice_width, mode=0)
-            cv2.imwrite(os.path.join(slice_dir, 'frame_' + str(i).rjust(10, '0') + '.png'), eimg)
+            if not args.skip_slice_vis:
+                eimg = dvs_img(sl, (RES_Y, RES_X), None, None, args.slice_width, mode=0)
+                cv2.imwrite(os.path.join(slice_dir, 'frame_' + str(i).rjust(10, '0') + '.png'), eimg)
 
-        depth = depths[i].astype(np.float)
-        mask  = masks[i].astype(np.float)
+        depth = depth.astype(np.float32)
+        mask  = mask.astype(np.float32)
         col_mask = mask_to_color(mask)
 
         # normalize for visualization
-        mask = (255 * (mask.astype(np.float) - np.nanmin(mask)) / (np.nanmax(mask) - np.nanmin(mask))).astype(np.uint8)
-        depth = (255 * (depth.astype(np.float) - np.nanmin(depth)) / (np.nanmax(depth) - np.nanmin(depth))).astype(np.uint8)
+        mask = (255 * (mask - np.nanmin(mask)) / (np.nanmax(mask) - np.nanmin(mask))).astype(np.uint8)
+        depth = (255 * (depth - np.nanmin(depth)) / (np.nanmax(depth) - np.nanmin(depth))).astype(np.uint8)
 
-        if ((classical_read > 0) and (classical is not None)):
-            grayscale_img = cv2.cvtColor(classical[i], cv2.COLOR_BGR2GRAY).astype(np.float)
+        if classical_read > 0:
+            if args.evimo2_npz:
+                classical_name = os.path.join(args.base_dir, 'classical_npy', 'classical_' + str(i).rjust(10, '0') + '.npy')
+                grayscale_img = cv2.cvtColor(np.load(classical_name), cv2.COLOR_BGR2GRAY).astype(np.float32)
+            else:
+                grayscale_img = cv2.cvtColor(classical[i], cv2.COLOR_BGR2GRAY).astype(np.float32)
             rgb_img = np.dstack((grayscale_img, grayscale_img, grayscale_img))
-            rgb_img[mask > 0] = rgb_img[mask > 0] * 0.2 + col_mask[mask > 0] * 0.8
+            mask_more_than_0 = mask > 0
+            rgb_img[mask_more_than_0] = rgb_img[mask_more_than_0] * 0.2 + col_mask[mask_more_than_0] * 0.8
             rgb_img = np.rot90(rgb_img, k=2)
             depth = np.rot90(depth, k=2)
             eimg = np.hstack((rgb_img.astype(np.uint8), np.dstack((depth,depth,depth))))
@@ -305,9 +414,37 @@ if __name__ == '__main__':
             eimg = dvs_img(sl, (RES_Y, RES_X), None, None, args.slice_width, mode=0)
             eimg[mask > 0] = eimg[mask > 0] * 0.5 + col_mask[mask > 0] * 0.5
             eimg = np.hstack((eimg.astype(np.uint8), np.dstack((depth,depth,depth))))
-
-        #footer = gen_text_stub(eimg.shape[1], frame)
-        #eimg = np.vstack((eimg, footer))
-
         cv2.imwrite(os.path.join(vis_dir, 'frame_' + str(i).rjust(10, '0') + '.png'), eimg)
+
+    print (pydvs.bld("Saving sanity and visualization frames:"))
+    num_cpu = multiprocessing.cpu_count()
+    print('Using {} processes'.format(num_cpu))
+    with Pool(num_cpu) as p:
+        list(tqdm(p.istarmap(save_visualization, enumerate(frames_meta)), total=len(frames_meta)))
+
+    print (pydvs.bld("Cleaning up intermediate files:"))
+    if not args.evimo2_npz:
+        print (pydvs.wrn("Removed mmap file: ") + pydvs.okb(os.path.join(args.base_dir, 'dataset_depth.mm')))
+        depths._mmap.close()
+        os.remove(os.path.join(args.base_dir, 'dataset_depth.mm'))
+
+        print (pydvs.wrn("Removed mmap file: ") + pydvs.okb(os.path.join(args.base_dir, 'dataset_masks.mm')))
+        masks._mmap.close()
+        os.remove(os.path.join(args.base_dir, 'dataset_masks.mm'))
+
+        if (classical_read > 0):
+            print (pydvs.wrn("Removed mmap file: ") + pydvs.okb(os.path.join(args.base_dir, 'dataset_classical.mm')))
+            classical._mmap.close()
+            os.remove(os.path.join(args.base_dir, 'dataset_classical.mm'))
+
+    elif args.evimo2_npz and not args.evimo2_no_compress:
+        print (pydvs.wrn("Removed directory: ") + pydvs.okb(os.path.join(args.base_dir, 'depth_npy')))
+        shutil.rmtree(os.path.join(args.base_dir, 'depth_npy'))
+
+        print (pydvs.wrn("Removed directory: ") + pydvs.okb(os.path.join(args.base_dir, 'mask_npy')))
+        shutil.rmtree(os.path.join(args.base_dir, 'mask_npy'))
+
+        print (pydvs.wrn("Removed directory: ") + pydvs.okb(os.path.join(args.base_dir, 'classical_npy')))
+        shutil.rmtree(os.path.join(args.base_dir, 'classical_npy'))
+
     print (pydvs.okg("\nDone.\n"))

@@ -3,6 +3,7 @@ import yaml
 import cv2
 import numpy as np
 from math import fabs, sqrt
+import pandas as pd
 
 with_rosbag = True
 try:
@@ -120,30 +121,61 @@ def read_calib_txt(fname):
     return K, D
 
 
-def get_index(cloud, index_w):
+# legacy is for EVIMO1, generation is very slow (ten minutes or more)
+# using binary search is much faster (takes maybe 1 second) but gives
+# slightly different indices having the exact indices is not a problem
+# for the purpose of the discretization
+def get_index(cloud, index_w, legacy=False):
     print (okb("Indexing..."))
 
     idx = [0]
     if (cloud.shape[0] < 2):
         return np.array(idx, dtype=np.uint32)
 
-    last_ts = cloud[0][0]
-    for i, e in enumerate(cloud):
-        sys.stdout.write("\r" + str(i + 1) + ' / ' +str(len(cloud)) + '\t\t')
-        while (e[0] - last_ts > index_w):
-            if (e[0] - last_ts > 1.0):
-                print (wrn("\nGap in the events:"), e[0] - last_ts, 'sec.')
-            idx.append(i)
-            last_ts += index_w
+    if not legacy:
+        index_times = np.arange(cloud[0, 0], cloud[-1, 0], step=index_w)
+        idx = np.searchsorted(cloud[:, 0], index_times, side='left')
+        idx = np.concatenate((idx, (cloud.shape[0]-1,)))
+        idx = idx.astype(np.uint32)
+    else:
+        last_ts = cloud[0][0]
+        for i, e in enumerate(cloud):
+            if i % 100000 == 0:
+                sys.stdout.write("\r" + str(i + 1) + ' / ' +str(len(cloud)) + '\t\t')
+            while (e[0] - last_ts > index_w):
+                if (e[0] - last_ts > 1.0):
+                    print (wrn("\nGap in the events:"), e[0] - last_ts, 'sec.')
+                idx.append(i)
+                last_ts += index_w
 
-    print ()
-    idx.append(cloud.shape[0] - 1)
-    return np.array(idx, dtype=np.uint32)
+        idx.append(cloud.shape[0] - 1)
+        idx = np.array(idx, dtype=np.uint32)
+    return idx
 
 
-def read_event_file_txt(fname, discretization, sort=False):
+def read_event_file_txt(fname, discretization, sort=False, legacy_discretization=False):
     print (okb("Reading the event file as a text file..."))
-    cloud = np.loadtxt(fname, dtype=np.float)
+    # For a 140M event file (~25 seconds), pandas takes 60 seconds with the C engine
+    # with pyarrow it takes 23 seconds, pyarrow is considered experimental at the time of writing
+    # np.loadtxt takes 765 seconds
+    cloud_pd = pd.read_csv(fname,
+                           dtype=np.float32,
+                           names=['t', 'x', 'y', 'p'],
+                           delim_whitespace=True).to_numpy()
+
+    # Something about what panda's to_numpy returns breaks codes that follow
+    # copying the pandas data into another numpy array fixes it, very strange
+    cloud = np.zeros(cloud_pd.shape, dtype=np.float32)
+    cloud[:, :] = cloud_pd[:, :]
+
+    # All these things are identical.....
+    #print(cloud_pd.shape)
+    #print(cloud_pd.dtype)
+    #print(cloud.shape)
+    #print(cloud.dtype)
+    #print(type(cloud_pd))
+    #print(type(cloud))
+
     if (sort):
         cloud = cloud[cloud[:,0].argsort()]
 
@@ -158,7 +190,7 @@ def read_event_file_txt(fname, discretization, sort=False):
 
     print (okg("Read"), cloud.shape[0], okg("events:"), cloud[0][0], "-", cloud[-1][0], "sec.")
 
-    idx = get_index(cloud, discretization)
+    idx = get_index(cloud, discretization, legacy_discretization)
     return cloud.astype(np.float32), idx
 
 
