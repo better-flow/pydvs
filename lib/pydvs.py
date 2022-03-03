@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 from math import fabs, sqrt
 import pandas as pd
+import pyarrow
 
 with_rosbag = True
 try:
@@ -158,23 +159,31 @@ def read_event_file_txt(fname, discretization, sort=False, legacy_discretization
     # For a 140M event file (~25 seconds), pandas takes 60 seconds with the C engine
     # with pyarrow it takes 23 seconds, pyarrow is considered experimental at the time of writing
     # np.loadtxt takes 765 seconds
-    cloud_pd = pd.read_csv(fname,
-                           dtype=np.float32,
-                           names=['t', 'x', 'y', 'p'],
-                           delim_whitespace=True).to_numpy()
+    if os.path.exists(fname):
+        try:
+            cloud_pd = pd.read_csv(fname,
+                                   dtype=np.float32,
+                                   names=['t', 'x', 'y', 'p'],
+                                   delimiter=' ',
+                                   engine='pyarrow').to_numpy()
 
-    # Something about what panda's to_numpy returns breaks codes that follow
-    # copying the pandas data into another numpy array fixes it, very strange
-    cloud = np.zeros(cloud_pd.shape, dtype=np.float32)
-    cloud[:, :] = cloud_pd[:, :]
+            # Something about what panda's to_numpy returns breaks codes that follow
+            # copying the pandas data into another numpy array fixes it, very strange
+            cloud = np.zeros(cloud_pd.shape, dtype=np.float32)
+            cloud[:, :] = cloud_pd[:, :]
 
-    # All these things are identical.....
-    #print(cloud_pd.shape)
-    #print(cloud_pd.dtype)
-    #print(cloud.shape)
-    #print(cloud.dtype)
-    #print(type(cloud_pd))
-    #print(type(cloud))
+            # All these things are identical.....
+            #print(cloud_pd.shape)
+            #print(cloud_pd.dtype)
+            #print(cloud.shape)
+            #print(cloud.dtype)
+            #print(type(cloud_pd))
+            #print(type(cloud))
+        except pyarrow.lib.ArrowInvalid:
+            # CSV was empty because this is probably a conventional camera sequence
+            cloud = np.zeros((0,), dtype=np.float32)
+    else:
+        cloud = np.zeros((0,), dtype=np.float32)
 
     if (sort):
         cloud = cloud[cloud[:,0].argsort()]
