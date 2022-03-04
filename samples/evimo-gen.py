@@ -337,14 +337,16 @@ if __name__ == '__main__':
         np.save(os.path.join(args.base_dir, 'dataset_events_xy.npy'), cloud[:, 1:3].astype(np.uint16))
         np.save(os.path.join(args.base_dir, 'dataset_events_p.npy'), cloud[:, 0].astype(np.uint8))
 
+        # For compatibility when there are no classical frames
+        if classical_read == 0:
+            np.save(os.path.join(args.base_dir, 'classical_npy', 'empty.npy'), None)
+
         # If not compressed, the npy files can be compressed later in batches
         # which will greatly increase throughput when processing the entire dataset
         if not args.evimo2_no_compress:
             npz_pairs = [(os.path.join(args.base_dir, 'dataset_depth.npz'),     os.path.join(args.base_dir, 'depth_npy')),
-                         (os.path.join(args.base_dir, 'dataset_mask.npz'),      os.path.join(args.base_dir, 'mask_npy'))]
-
-            if classical_read > 0:
-                npz_pairs.append((os.path.join(args.base_dir, 'dataset_classical.npz'), os.path.join(args.base_dir, 'classical_npy')))
+                         (os.path.join(args.base_dir, 'dataset_mask.npz'),      os.path.join(args.base_dir, 'mask_npy')),
+                         (os.path.join(args.base_dir, 'dataset_classical.npz'), os.path.join(args.base_dir, 'classical_npy'))]
 
             print (pydvs.bld("Compressing .npy into npz:"))
             print('Using {} processes'.format(len(npz_pairs)))
