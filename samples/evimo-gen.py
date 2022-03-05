@@ -108,27 +108,48 @@ def dvs_img(cloud, shape, K, D, slice_width, mode=0):
     return cmb
 
 
-def aos2soa(aos, keys=[]):
-    # Convert an array of structures (expressed as Python dict)
-    # to a structure of arrays
-    if (len(aos) == 0):
-        return aos
-    end = aos[0]
-    for key in keys:
-        end = end[key]
-    if (type(end) == type(dict())):
-        ret = {}
-        for key in end:
-            ret[key] = aos2soa(aos, keys + [key])
-        return ret
-    ret = []
-    for s in aos:
-        end = s
-        for key in keys:
-            end = end[key]
-        ret.append(end)
-    return ret
+# aos2soa does not suffice because there are dropped poses
+def frames_meta_to_arrays(all_objects_pose_list):
+    objects_arrays = {}
 
+    for objects_pose in all_objects_pose_list:
+        for obj_id in objects_pose:
+            if obj_id == 'ts':
+                if 'ts' not in objects_arrays:
+                    objects_arrays['ts'] = []
+                objects_arrays['ts'].append(objects_pose['ts'])
+
+            if obj_id == 'cam' or obj_id.isnumeric():
+                if obj_id not in objects_arrays:
+                    objects_arrays[obj_id] = {}
+                    objects_arrays[obj_id]['ts'] = []
+                    objects_arrays[obj_id]['pos'] = {}
+                    objects_arrays[obj_id]['pos']['t'] = {}
+                    objects_arrays[obj_id]['pos']['t']['x'] = []
+                    objects_arrays[obj_id]['pos']['t']['y'] = []
+                    objects_arrays[obj_id]['pos']['t']['z'] = []
+                    objects_arrays[obj_id]['pos']['rpy'] = {}
+                    objects_arrays[obj_id]['pos']['rpy']['r'] = []
+                    objects_arrays[obj_id]['pos']['rpy']['p'] = []
+                    objects_arrays[obj_id]['pos']['rpy']['y'] = []
+                    objects_arrays[obj_id]['pos']['q'] = {}
+                    objects_arrays[obj_id]['pos']['q']['w'] = []
+                    objects_arrays[obj_id]['pos']['q']['x'] = []
+                    objects_arrays[obj_id]['pos']['q']['y'] = []
+                    objects_arrays[obj_id]['pos']['q']['z'] = []
+
+                objects_arrays[obj_id]['ts'].append(objects_pose[obj_id]['ts'])
+                objects_arrays[obj_id]['pos']['t']['x'].append(objects_pose[obj_id]['pos']['t']['x'])
+                objects_arrays[obj_id]['pos']['t']['y'].append(objects_pose[obj_id]['pos']['t']['y'])
+                objects_arrays[obj_id]['pos']['t']['z'].append(objects_pose[obj_id]['pos']['t']['z'])
+                objects_arrays[obj_id]['pos']['rpy']['r'].append(objects_pose[obj_id]['pos']['rpy']['r'])
+                objects_arrays[obj_id]['pos']['rpy']['p'].append(objects_pose[obj_id]['pos']['rpy']['p'])
+                objects_arrays[obj_id]['pos']['rpy']['y'].append(objects_pose[obj_id]['pos']['rpy']['y'])
+                objects_arrays[obj_id]['pos']['q']['w'].append(objects_pose[obj_id]['pos']['q']['w'])
+                objects_arrays[obj_id]['pos']['q']['x'].append(objects_pose[obj_id]['pos']['q']['x'])
+                objects_arrays[obj_id]['pos']['q']['y'].append(objects_pose[obj_id]['pos']['q']['y'])
+                objects_arrays[obj_id]['pos']['q']['z'].append(objects_pose[obj_id]['pos']['q']['z'])
+    return objects_arrays
 
 def angle_to_absolute(angles):
     return np.array(angles)
@@ -144,7 +165,7 @@ def angle_to_absolute(angles):
 
 
 def save_plot(frames_meta, oids, file_name, tp='pos'):
-    plottable_meta = aos2soa(frames_meta)
+    plottable_meta = frames_meta_to_arrays(frames_meta)
     plt.rcParams['lines.linewidth'] = 0.8
     fig, axs = plt.subplots(2 * (len(oids) + 1), 1)
 
@@ -153,15 +174,15 @@ def save_plot(frames_meta, oids, file_name, tp='pos'):
     plottable_meta[oid]['pos']['rpy']['p'] = angle_to_absolute(plottable_meta[oid]['pos']['rpy']['p'])
     plottable_meta[oid]['pos']['rpy']['y'] = angle_to_absolute(plottable_meta[oid]['pos']['rpy']['y'])
 
-    axs[0].plot(plottable_meta['ts'], plottable_meta['cam'][tp]['t']['x'], label='X axis')
-    axs[0].plot(plottable_meta['ts'], plottable_meta['cam'][tp]['t']['y'], label='Y axis')
-    axs[0].plot(plottable_meta['ts'], plottable_meta['cam'][tp]['t']['z'], label='Z axis')
+    axs[0].plot(plottable_meta['cam']['ts'], plottable_meta['cam'][tp]['t']['x'], label='X axis')
+    axs[0].plot(plottable_meta['cam']['ts'], plottable_meta['cam'][tp]['t']['y'], label='Y axis')
+    axs[0].plot(plottable_meta['cam']['ts'], plottable_meta['cam'][tp]['t']['z'], label='Z axis')
     axs[0].set_ylabel('camera translation (m)')
     axs[0].grid()
     axs[0].legend()
-    axs[1].plot(plottable_meta['ts'], plottable_meta['cam'][tp]['rpy']['r'], label='R')
-    axs[1].plot(plottable_meta['ts'], plottable_meta['cam'][tp]['rpy']['p'], label='P')
-    axs[1].plot(plottable_meta['ts'], plottable_meta['cam'][tp]['rpy']['y'], label='Y')
+    axs[1].plot(plottable_meta['cam']['ts'], plottable_meta['cam'][tp]['rpy']['r'], label='R')
+    axs[1].plot(plottable_meta['cam']['ts'], plottable_meta['cam'][tp]['rpy']['p'], label='P')
+    axs[1].plot(plottable_meta['cam']['ts'], plottable_meta['cam'][tp]['rpy']['y'], label='Y')
     axs[1].set_xlabel('frame')
     axs[1].set_ylabel('camera rotation (rad)')
     axs[1].grid()
@@ -172,15 +193,15 @@ def save_plot(frames_meta, oids, file_name, tp='pos'):
         plottable_meta[oid]['pos']['rpy']['p'] = angle_to_absolute(plottable_meta[oid]['pos']['rpy']['p'])
         plottable_meta[oid]['pos']['rpy']['y'] = angle_to_absolute(plottable_meta[oid]['pos']['rpy']['y'])
 
-        axs[2 * k + 2].plot(plottable_meta['ts'], plottable_meta[id_][tp]['t']['x'], label='X axis')
-        axs[2 * k + 2].plot(plottable_meta['ts'], plottable_meta[id_][tp]['t']['y'], label='Y axis')
-        axs[2 * k + 2].plot(plottable_meta['ts'], plottable_meta[id_][tp]['t']['z'], label='Z axis')
+        axs[2 * k + 2].plot(plottable_meta[id_]['ts'], plottable_meta[id_][tp]['t']['x'], label='X axis')
+        axs[2 * k + 2].plot(plottable_meta[id_]['ts'], plottable_meta[id_][tp]['t']['y'], label='Y axis')
+        axs[2 * k + 2].plot(plottable_meta[id_]['ts'], plottable_meta[id_][tp]['t']['z'], label='Z axis')
         axs[2 * k + 2].set_ylabel('object_' + str(id_) + ' translation (m)')
         axs[2 * k + 2].grid()
         axs[2 * k + 2].legend()
-        axs[2 * k + 3].plot(plottable_meta['ts'], plottable_meta[id_][tp]['rpy']['r'], label='R')
-        axs[2 * k + 3].plot(plottable_meta['ts'], plottable_meta[id_][tp]['rpy']['p'], label='P')
-        axs[2 * k + 3].plot(plottable_meta['ts'], plottable_meta[id_][tp]['rpy']['y'], label='Y')
+        axs[2 * k + 3].plot(plottable_meta[id_]['ts'], plottable_meta[id_][tp]['rpy']['r'], label='R')
+        axs[2 * k + 3].plot(plottable_meta[id_]['ts'], plottable_meta[id_][tp]['rpy']['p'], label='P')
+        axs[2 * k + 3].plot(plottable_meta[id_]['ts'], plottable_meta[id_][tp]['rpy']['y'], label='Y')
         axs[2 * k + 3].set_xlabel('frame')
         axs[2 * k + 3].set_ylabel('object_' + str(id_) + ' rotation (rad)')
         axs[2 * k + 3].grid()
@@ -265,21 +286,22 @@ if __name__ == '__main__':
         classical = np.memmap(os.path.join(args.base_dir, 'dataset_classical.mm'), mode='w+', shape=(NUM_FRAMES,) + (RES_Y, RES_X, 3), dtype=np.uint8)
 
     def load_frame(i, frame):
-        gt_frame_name = os.path.join(args.base_dir, frame['gt_frame'])
-        gt_img = cv2.imread(gt_frame_name, cv2.IMREAD_UNCHANGED)
-        if not args.evimo2_npz:
-            if (gt_img.dtype != depths.dtype or gt_img.dtype != masks.dtype):
-                print ("\tType mismatch! Expected", depths.dtype, " but have", gt_img.dtype)
-                sys.exit(-1)
+        if 'gt_frame' in frame.keys():
+            gt_frame_name = os.path.join(args.base_dir, frame['gt_frame'])
+            gt_img = cv2.imread(gt_frame_name, cv2.IMREAD_UNCHANGED)
+            if not args.evimo2_npz:
+                if (gt_img.dtype != depths.dtype or gt_img.dtype != masks.dtype):
+                    print ("\tType mismatch! Expected", depths.dtype, " but have", gt_img.dtype)
+                    sys.exit(-1)
 
-        if args.evimo2_npz:
-            depth_name = os.path.join(args.base_dir, 'depth_npy', 'depth_' + str(i).rjust(10, '0') + '.npy')
-            mask_name  = os.path.join(args.base_dir, 'mask_npy', 'mask_' + str(i).rjust(10, '0') + '.npy')
-            np.save(depth_name, gt_img[:, :, 0], allow_pickle=False)
-            np.save(mask_name,  gt_img[:, :, 2], allow_pickle=False)
-        else:
-            depths[i,:,:] = gt_img[:,:,0] # depth is in mm
-            masks[i,:,:]  = gt_img[:,:,2] # mask is object ids * 1000
+            if args.evimo2_npz:
+                depth_name = os.path.join(args.base_dir, 'depth_npy', 'depth_' + str(i).rjust(10, '0') + '.npy')
+                mask_name  = os.path.join(args.base_dir, 'mask_npy', 'mask_' + str(i).rjust(10, '0') + '.npy')
+                np.save(depth_name, gt_img[:, :, 0], allow_pickle=False)
+                np.save(mask_name,  gt_img[:, :, 2], allow_pickle=False)
+            else:
+                depths[i,:,:] = gt_img[:,:,0] # depth is in mm
+                masks[i,:,:]  = gt_img[:,:,2] # mask is object ids * 1000
 
         if ('classical_frame' in frame.keys()):
             classical_frame_name = os.path.join(args.base_dir, frame['classical_frame'])
@@ -376,15 +398,24 @@ if __name__ == '__main__':
             depth_name = os.path.join(args.base_dir, 'depth_npy', 'depth_' + str(i).rjust(10, '0') + '.npy')
             mask_name  = os.path.join(args.base_dir, 'mask_npy', 'mask_' + str(i).rjust(10, '0') + '.npy')
 
-            depth = np.load(depth_name)
-            mask  = np.load(mask_name)
+            if os.path.exists(depth_name):
+                depth = np.load(depth_name)
+            else:
+                depth = None
+
+            if os.path.exists(mask_name):
+                mask  = np.load(mask_name)
+            else:
+                mask = None
         else:
             depth = depths[i]
             mask  = masks[i]
 
         if not args.skip_slice_vis:
-            cv2.imwrite(os.path.join(slice_dir, 'depth_' + str(i).rjust(10, '0') + '.png'), depth.astype(np.uint16))
-            cv2.imwrite(os.path.join(slice_dir, 'mask_'  + str(i).rjust(10, '0') + '.png'), mask.astype(np.uint16))
+            if depth is not None:
+                cv2.imwrite(os.path.join(slice_dir, 'depth_' + str(i).rjust(10, '0') + '.png'), depth.astype(np.uint16))
+            if mask is not None:
+                cv2.imwrite(os.path.join(slice_dir, 'mask_'  + str(i).rjust(10, '0') + '.png'), mask.astype(np.uint16))
 
         if (cloud.shape[0] > 0):
             sl, _ = pydvs.get_slice(cloud, idx, time, args.slice_width, 1, args.discretization)
@@ -392,13 +423,15 @@ if __name__ == '__main__':
                 eimg = dvs_img(sl, (RES_Y, RES_X), None, None, args.slice_width, mode=0)
                 cv2.imwrite(os.path.join(slice_dir, 'frame_' + str(i).rjust(10, '0') + '.png'), eimg)
 
-        depth = depth.astype(np.float32)
-        mask  = mask.astype(np.float32)
-        col_mask = mask_to_color(mask)
-
         # normalize for visualization
-        mask = (255 * (mask - np.nanmin(mask)) / (np.nanmax(mask) - np.nanmin(mask))).astype(np.uint8)
-        depth = (255 * (depth - np.nanmin(depth)) / (np.nanmax(depth) - np.nanmin(depth))).astype(np.uint8)
+        if depth is not None:
+            depth = depth.astype(np.float32)
+            depth = (255 * (depth - np.nanmin(depth)) / (np.nanmax(depth) - np.nanmin(depth))).astype(np.uint8)
+
+        if mask is not None:
+            mask  = mask.astype(np.float32)
+            col_mask = mask_to_color(mask)
+            mask = (255 * (mask - np.nanmin(mask)) / (np.nanmax(mask) - np.nanmin(mask))).astype(np.uint8)
 
         if classical_read > 0:
             if args.evimo2_npz:
@@ -407,14 +440,23 @@ if __name__ == '__main__':
             else:
                 grayscale_img = cv2.cvtColor(classical[i], cv2.COLOR_BGR2GRAY).astype(np.float32)
             rgb_img = np.dstack((grayscale_img, grayscale_img, grayscale_img))
-            mask_more_than_0 = mask > 0
-            rgb_img[mask_more_than_0] = rgb_img[mask_more_than_0] * 0.2 + col_mask[mask_more_than_0] * 0.8
+            
+            if mask is not None:
+                mask_more_than_0 = mask > 0
+                rgb_img[mask_more_than_0] = rgb_img[mask_more_than_0] * 0.2 + col_mask[mask_more_than_0] * 0.8
+                
             rgb_img = np.rot90(rgb_img, k=2)
-            depth = np.rot90(depth, k=2)
+            if depth is not None:
+                depth = np.rot90(depth, k=2)
+            else:
+                depth = np.zeros((rgb_img.shape[0], rgb_img.shape[1]), dtype=np.uint8)
             eimg = np.hstack((rgb_img.astype(np.uint8), np.dstack((depth,depth,depth))))
         else:
             eimg = dvs_img(sl, (RES_Y, RES_X), None, None, args.slice_width, mode=0)
-            eimg[mask > 0] = eimg[mask > 0] * 0.5 + col_mask[mask > 0] * 0.5
+            if mask is not None:
+                eimg[mask > 0] = eimg[mask > 0] * 0.5 + col_mask[mask > 0] * 0.5
+            if depth is None:
+                depth = np.zeros((eimg.shape[0], eimg.shape[1]), dtype=np.uint8)
             eimg = np.hstack((eimg.astype(np.uint8), np.dstack((depth,depth,depth))))
         cv2.imwrite(os.path.join(vis_dir, 'frame_' + str(i).rjust(10, '0') + '.png'), eimg)
 
