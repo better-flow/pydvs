@@ -436,11 +436,10 @@ if __name__ == '__main__':
         if classical_read > 0:
             if args.evimo2_npz:
                 classical_name = os.path.join(args.base_dir, 'classical_npy', 'classical_' + str(i).rjust(10, '0') + '.npy')
-                grayscale_img = cv2.cvtColor(np.load(classical_name), cv2.COLOR_BGR2GRAY).astype(np.float32)
+                rgb_img = np.load(classical_name).astype(np.float32)
             else:
-                grayscale_img = cv2.cvtColor(classical[i], cv2.COLOR_BGR2GRAY).astype(np.float32)
-            rgb_img = np.dstack((grayscale_img, grayscale_img, grayscale_img))
-            
+                rgb_img = classical[i].astype(np.float32)
+
             if mask is not None:
                 mask_more_than_0 = mask > 0
                 rgb_img[mask_more_than_0] = rgb_img[mask_more_than_0] * 0.2 + col_mask[mask_more_than_0] * 0.8
