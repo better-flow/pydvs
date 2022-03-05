@@ -252,11 +252,14 @@ if __name__ == '__main__':
     NUM_FRAMES = len(dataset_txt['frames'])
     frames_meta = dataset_txt['frames']
 
-    oids = []
-    for key in frames_meta[0]:
-        if (key == 'cam'): continue
-        if (type(frames_meta[0][key]) == type(dict()) and 'pos' in frames_meta[0][key]):
-            oids.append(key)
+    oids = {}
+    for frame in frames_meta:
+        for key in frame:
+            if (key == 'cam'): continue
+            if (type(frame[key]) == type(dict()) and 'pos' in frame[key]):
+                if key not in oids:
+                    oids[key] = None
+    oids = list(oids.keys())
 
     print (pydvs.okb("Resolution:"), RES_X, 'x', RES_Y)
     print (pydvs.okb("Frames:"), NUM_FRAMES)
