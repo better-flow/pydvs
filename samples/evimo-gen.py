@@ -360,7 +360,7 @@ if __name__ == '__main__':
                  index=idx, discretization=args.discretization, K=K, D=D, meta=dataset_txt)
         np.save(os.path.join(args.base_dir, 'dataset_events_t.npy'), cloud[:, 0])
         np.save(os.path.join(args.base_dir, 'dataset_events_xy.npy'), cloud[:, 1:3].astype(np.uint16))
-        np.save(os.path.join(args.base_dir, 'dataset_events_p.npy'), cloud[:, 0].astype(np.uint8))
+        np.save(os.path.join(args.base_dir, 'dataset_events_p.npy'), cloud[:, 3].astype(np.uint8))
 
         # For compatibility when there are no classical frames
         if classical_read == 0:
